@@ -54,6 +54,10 @@ struct efa_rdm_ep {
 
 	/* shm provider fid */
 	struct fid_ep *shm_ep;
+	/* shm srx fid (shm-owned) */
+	struct fid_ep *shm_srx;
+	/* shm peer_srx (efa-owned) */
+	struct fid_peer_srx *shm_peer_srx;
 
 	/*
 	 * EFA RDM endpoint rx/tx queue sizes. These may be different from the core
