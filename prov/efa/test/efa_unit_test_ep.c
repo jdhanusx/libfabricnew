@@ -192,7 +192,7 @@ void test_efa_rdm_ep_handshake_exchange_host_id(struct efa_resource **state, uin
 	will_return(efa_mock_ibv_next_poll_check_function_called_and_return_mock, ENOENT);
 	will_return(efa_mock_ibv_read_byte_len_return_mock, pkt_entry->pkt_size);
 	will_return(efa_mock_ibv_read_opcode_return_mock, IBV_WC_RECV);
-	will_return(efa_mock_ibv_read_qp_num_return_mock, 0);
+	will_return(efa_mock_ibv_read_qp_num_return_mock, efa_rdm_ep->base_ep.qp->qp_num);
 	will_return(efa_mock_ibv_read_wc_flags_return_mock, 0);
 	will_return(efa_mock_ibv_read_slid_return_mock, efa_rdm_ep_get_peer_ahn(efa_rdm_ep, peer_addr));
 	will_return(efa_mock_ibv_read_src_qp_return_mock, raw_addr.qpn);
@@ -204,7 +204,7 @@ void test_efa_rdm_ep_handshake_exchange_host_id(struct efa_resource **state, uin
 	 */
 	will_return(efa_mock_ibv_end_poll_check_mock, NULL);
 	will_return(efa_mock_ibv_read_opcode_return_mock, IBV_WC_SEND);
-	will_return(efa_mock_ibv_read_qp_num_return_mock, 0);
+	will_return(efa_mock_ibv_read_qp_num_return_mock, efa_rdm_ep->base_ep.qp->qp_num);
 	will_return(efa_mock_ibv_read_vendor_err_return_mock, FI_EFA_ERR_OTHER);
 	will_return(efa_mock_ibv_start_poll_return_mock, IBV_WC_SUCCESS);
 
@@ -742,7 +742,7 @@ void test_efa_rdm_ep_rma_without_caps(struct efa_resource **state)
 
 	/* ensure we don't have RMA capability. */
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
-	assert_int_equal( efa_rdm_ep->user_info->caps & FI_RMA, 0);
+	assert_int_equal( efa_rdm_ep->base_ep.info->caps & FI_RMA, 0);
 
 	/* create a fake peer */
 	err = fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len);
@@ -793,7 +793,7 @@ void test_efa_rdm_ep_atomic_without_caps(struct efa_resource **state)
 
 	/* ensure we don't have ATOMIC capability. */
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
-	assert_int_equal( efa_rdm_ep->user_info->caps & FI_ATOMIC, 0);
+	assert_int_equal( efa_rdm_ep->base_ep.info->caps & FI_ATOMIC, 0);
 
 	/* create a fake peer */
 	err = fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len);
