@@ -70,6 +70,9 @@ void ft_parse_benchmark_opts(int op, char *optarg)
 	case 'W':
 		opts.window_size = atoi(optarg);
 		break;
+	case 'T':
+		opts.options |= FT_OPT_NO_PRE_POSTED_RX;
+		break;
 	default:
 		break;
 	}
@@ -84,11 +87,125 @@ void ft_benchmark_usage(void)
 			"* The following condition is required to have at least "
 			"one window\nsize # of messsages to be sent: "
 			"# of iterations > window size");
+	FT_PRINT_OPTS_USAGE("-T", "Post transmit operations (e.g. fi_send, fi_tsend) before receives");
+	FT_PRINT_OPTS_USAGE("", "Using this option requires out-of-band address exchange and synchronization (i.e. -b must be used)");
+	FT_PRINT_OPTS_USAGE("", "Only the following tests support this option for now:");
+	FT_PRINT_OPTS_USAGE("", "\tfi_rdm_tagged_pingpong");
+	FT_PRINT_OPTS_USAGE("", "\tfi_rdm_pingpong");
+}
+
+/* Pingpong latency test with pre-posted receive buffers. */
+static int pingpong_pre_posted_rx(size_t inject_size)
+{
+	int ret, i;
+
+	if (opts.dst_addr) {
+		for (i = 0; i < opts.iterations + opts.warmup_iterations; i++) {
+			if (i == opts.warmup_iterations)
+				ft_start();
+
+			if (opts.transfer_size <= inject_size)
+				ret = ft_inject(ep, remote_fi_addr,
+						opts.transfer_size);
+			else
+				ret = ft_tx(ep, remote_fi_addr,
+					    opts.transfer_size, &tx_ctx);
+			if (ret)
+				return ret;
+
+			ret = ft_rx(ep, opts.transfer_size);
+			if (ret)
+				return ret;
+		}
+	} else {
+		for (i = 0; i < opts.iterations + opts.warmup_iterations; i++) {
+			if (i == opts.warmup_iterations)
+				ft_start();
+
+			ret = ft_rx(ep, opts.transfer_size);
+			if (ret)
+				return ret;
+
+			if (opts.transfer_size <= inject_size)
+				ret = ft_inject(ep, remote_fi_addr,
+						opts.transfer_size);
+			else
+				ret = ft_tx(ep, remote_fi_addr,
+					    opts.transfer_size, &tx_ctx);
+			if (ret)
+				return ret;
+		}
+	}
+	ft_stop();
+
+	return FI_SUCCESS;
+}
+
+/* Pingpong latency test without pre-posted receive buffers. */
+static int pingpong_no_pre_posted_rx(size_t inject_size)
+{
+	int ret, i;
+
+	if (opts.dst_addr) {
+		for (i = 0; i < opts.iterations + opts.warmup_iterations; i++) {
+			if (i == opts.warmup_iterations)
+				ft_start();
+
+			if (opts.transfer_size <= inject_size)
+				ret = ft_inject(ep, remote_fi_addr,
+						opts.transfer_size);
+			else
+				ret = ft_tx(ep, remote_fi_addr,
+					    opts.transfer_size, &tx_ctx);
+			if (ret)
+				return ret;
+
+			ret = ft_post_rx(ep, opts.transfer_size, &rx_ctx);
+			if (ret)
+				return ret;
+
+			ret = ft_get_rx_comp(rx_seq);
+			if (ret)
+				return ret;
+		}
+	} else {
+		for (i = 0; i < opts.iterations + opts.warmup_iterations; i++) {
+			if (i == opts.warmup_iterations)
+				ft_start();
+
+			ret = ft_post_rx(ep, opts.transfer_size, &rx_ctx);
+			if (ret)
+				return ret;
+
+			ret = ft_get_rx_comp(rx_seq);
+			if (ret)
+				return ret;
+
+			if (ft_check_opts(FT_OPT_VERIFY_DATA | FT_OPT_ACTIVE)) {
+				ret = ft_check_buf((char *) rx_buf + ft_rx_prefix_size(),
+						   opts.transfer_size);
+				if (ret)
+					return ret;
+			}
+
+			if (opts.transfer_size <= inject_size)
+				ret = ft_inject(ep, remote_fi_addr,
+						opts.transfer_size);
+			else
+				ret = ft_tx(ep, remote_fi_addr,
+					    opts.transfer_size, &tx_ctx);
+			if (ret)
+				return ret;
+		}
+	}
+	ft_stop();
+
+	return FI_SUCCESS;
 }
 
 int pingpong(void)
 {
-	int ret, i;
+	int ret;
 	size_t inject_size = fi->tx_attr->inject_size;
 
 	ret = fi_getopt(&ep->fid, FI_OPT_ENDPOINT, FI_OPT_INJECT_MSG_SIZE,
@@ -108,40 +225,42 @@ int pingpong(void)
 	if (ret)
 		return ret;
 
-	if (opts.dst_addr) {
-		for (i = 0; i < opts.iterations + opts.warmup_iterations; i++) {
-			if (i == opts.warmup_iterations)
-				ft_start();
-
-			if (opts.transfer_size <= inject_size)
-				ret = ft_inject(ep, remote_fi_addr, opts.transfer_size);
-			else
-				ret = ft_tx(ep, remote_fi_addr, opts.transfer_size, &tx_ctx);
+	if (ft_check_opts(FT_OPT_NO_PRE_POSTED_RX)) {
+		/* Consume pre-posted RX buffers on client and server. */
+		if (opts.dst_addr) {
+			ret = ft_tx(ep, remote_fi_addr, opts.transfer_size,
+				    &tx_ctx);
 			if (ret)
 				return ret;
 
-			ret = ft_rx(ep, opts.transfer_size);
+			ret = ft_get_rx_comp(rx_seq);
+			if (ret)
+				return ret;
+		} else {
+			ret = ft_get_rx_comp(rx_seq);
+			if (ret)
+				return ret;
+
+
+			ret = ft_tx(ep, remote_fi_addr, opts.transfer_size,
+				    &tx_ctx);
 			if (ret)
 				return ret;
 		}
+
+		ret = pingpong_no_pre_posted_rx(inject_size);
+		if (ret)
+			return ret;
+
+		/* Repost pre-posted RX buffers to support inband sync. */
+		ret = ft_post_rx(ep, rx_size, &rx_ctx);
+		if (ret)
+			return ret;
 	} else {
-		for (i = 0; i < opts.iterations + opts.warmup_iterations; i++) {
-			if (i == opts.warmup_iterations)
-				ft_start();
-
-			ret = ft_rx(ep, opts.transfer_size);
-			if (ret)
-				return ret;
-
-			if (opts.transfer_size <= inject_size)
-				ret = ft_inject(ep, remote_fi_addr, opts.transfer_size);
-			else
-				ret = ft_tx(ep, remote_fi_addr, opts.transfer_size, &tx_ctx);
-			if (ret)
-				return ret;
-		}
+		ret = pingpong_pre_posted_rx(inject_size);
+		if (ret)
+			return ret;
 	}
-	ft_stop();
 
 	if (opts.machr)
 		show_perf_mr(opts.transfer_size, opts.iterations, &start, &end, 2,
@@ -150,6 +269,34 @@ int pingpong(void)
 		show_perf(NULL, opts.transfer_size, opts.iterations, &start, &end, 2);
 
 	return 0;
+}
+
+int run_pingpong(void)
+{
+	int i, ret = 0;
+
+	ret = ft_init_fabric();
+	if (ret)
+		return ret;
+
+	if (!(opts.options & FT_OPT_SIZE)) {
+		for (i = 0; i < TEST_CNT; i++) {
+			if (!ft_use_size(i, opts.sizes_enabled))
+				continue;
+			opts.transfer_size = test_size[i].size;
+			init_test(&opts, test_name, sizeof(test_name));
+			ret = pingpong();
+			if (ret)
+				return ret;
+		}
+	} else {
+		init_test(&opts, test_name, sizeof(test_name));
+		ret = pingpong();
+		if (ret)
+			return ret;
+	}
+
+	return ft_finalize();
 }
 
 int pingpong_rma(enum ft_rma_opcodes rma_op, struct fi_rma_iov *remote)
