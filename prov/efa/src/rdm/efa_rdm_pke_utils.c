@@ -22,7 +22,7 @@
  *
  * This function may or may not copy data from user's buffer to the packet's.
  * If copy, "payload" will be pointing to a location inside packet entry's wiredata.
- * Otherwise, "payload" will be pointing to a location insder user's buffer.
+ * Otherwise, "payload" will be pointing to a location inside user's buffer.
  *
  * @param[in,out]	pkt_entry	packet entry. Header must have been set when the function is called
  * @param[in]		ope		operation entry that has user buffer information.
@@ -41,7 +41,8 @@ ssize_t efa_rdm_pke_init_payload_from_ope(struct efa_rdm_pke *pke,
 					  size_t data_size)
 {
 	int tx_iov_index, ret;
-	bool efa_can_access_memory;
+	bool mr_p2p_available;
+	bool use_inline_buf;
 	size_t tx_iov_offset, copied;
 	struct efa_mr *iov_mr;
 
@@ -61,34 +62,30 @@ ssize_t efa_rdm_pke_init_payload_from_ope(struct efa_rdm_pke *pke,
 	assert(tx_iov_index < ope->iov_count);
 	assert(tx_iov_offset < ope->iov[tx_iov_index].iov_len);
 	iov_mr = ope->desc[tx_iov_index];
+	mr_p2p_available = false;
+	use_inline_buf = false;
 
-	/* When using EFA device, EFA device can access memory that
-	 * that has been registered, and p2p is allowed to be used.
-	 */
 	if (iov_mr) {
 		ret = efa_rdm_ep_use_p2p(pke->ep, iov_mr);
 		if (ret < 0)
 			return ret;
-		efa_can_access_memory = ret;
-	/**
-	 * efa can directly access memory if the buffer is host memory
-	 * and the pkt size (hdr + data) is within inline buf size.
-	 */
+		mr_p2p_available = ret;
 	} else if (!efa_mr_is_hmem(iov_mr) &&
 	           payload_offset + data_size <= efa_rdm_ep_domain(pke->ep)->device->efa_attr.inline_buf_size) {
-		efa_can_access_memory = true;
-	} else {
-		efa_can_access_memory = false;
+		use_inline_buf = true;
 	}
 
 	/*
 	 * Copy can be avoid if the following 2 conditions are true:
-	 * 1. EFA can directly access the memory
-	 * 2. data to be send is in 1 iov, because device only support 2 iov, and we use
-	 *    1st iov for header.
+	 * 1. data to be send is in 1 iov, because device only support 2 iov,
+	 * and we use 1st iov for header.
+	 * 2. using inline or p2p is available.
+	 * Note that FI_INJECT requires outbound buffer to be reusable
+	 * immediately after function returns, so unless using inline,
+	 * a copy from the user buffer to the internal bounce buffer is needed.
 	 */
-	if (efa_can_access_memory &&
-	    (tx_iov_offset + data_size <= ope->iov[tx_iov_index].iov_len)) {
+	if (tx_iov_offset + data_size <= ope->iov[tx_iov_index].iov_len &&
+	    (use_inline_buf || (mr_p2p_available && !(ope->fi_flags & FI_INJECT)))) {
 		pke->payload = (char *)ope->iov[tx_iov_index].iov_base + tx_iov_offset;
 		pke->payload_size = data_size;
 		pke->payload_mr = ope->desc[tx_iov_index];
@@ -96,20 +93,8 @@ ssize_t efa_rdm_pke_init_payload_from_ope(struct efa_rdm_pke *pke,
 		return 0;
 	}
 
-	if (iov_mr && (iov_mr->peer.flags & OFI_HMEM_DATA_DEV_REG_HANDLE)) {
-		assert(iov_mr->peer.hmem_data);
-		copied = ofi_dev_reg_copy_from_hmem_iov(pke->wiredata + payload_offset,
-							data_size, iov_mr->peer.iface,
-							(uint64_t)iov_mr->peer.hmem_data,
-							ope->iov, ope->iov_count,
-							segment_offset);
-	} else {
-		copied = ofi_copy_from_hmem_iov(pke->wiredata + payload_offset,
-						data_size,
-		                                iov_mr ? iov_mr->peer.iface : FI_HMEM_SYSTEM,
-		                                iov_mr ? iov_mr->peer.device.reserved : 0,
-		                                ope->iov, ope->iov_count, segment_offset);
-	}
+	copied = efa_rdm_pke_copy_from_hmem_iov(
+		iov_mr, pke, ope, payload_offset, segment_offset, data_size);
 
 	assert(copied == data_size);
 	pke->payload = pke->wiredata + payload_offset;
@@ -265,15 +250,16 @@ int efa_rdm_pke_get_available_copy_methods(struct efa_rdm_ep *ep,
 					   bool *restrict gdrcopy_available)
 {
 	int ret;
-	bool p2p_available;
+	bool mr_p2p_available;
 
+	assert(efa_mr);
 	ret = efa_rdm_ep_use_p2p(ep, efa_mr);
 	if (ret < 0) {
 		return ret;
 	}
 
-	p2p_available = ret;
-	*local_read_available = p2p_available && efa_rdm_ep_support_rdma_read(ep);
+	mr_p2p_available = ret;
+	*local_read_available = mr_p2p_available && efa_rdm_ep_support_rdma_read(ep);
 	*cuda_memcpy_available = ep->cuda_api_permitted;
 	*gdrcopy_available = efa_mr->peer.flags & OFI_HMEM_DATA_DEV_REG_HANDLE;
 
