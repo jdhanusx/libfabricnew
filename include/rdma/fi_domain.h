@@ -183,6 +183,21 @@ struct fi_mr_modify {
 	struct fi_mr_attr	attr;
 };
 
+struct fi_mr_alloc_keys {
+	size_t		count;
+	uint64_t	*keys;
+};
+
+struct fi_mr_assign_key {
+	uint64_t	offset;
+	size_t		len;
+	uint64_t	access;
+	size_t		auth_key_size;
+	uint8_t		*auth_key;
+	uint64_t	key;
+	uint64_t	flags;
+};
+
 #define FI_SET_OPS_HMEM_OVERRIDE "hmem_override_ops"
 
 struct fi_hmem_override_ops {
@@ -487,6 +502,38 @@ fi_mr_refresh(struct fid_mr *mr, const struct iovec *iov, size_t count,
 static inline int fi_mr_enable(struct fid_mr *mr)
 {
 	return mr->fid.ops->control(&mr->fid, FI_ENABLE, NULL);
+}
+
+static inline int
+fi_mr_alloc_keys(struct fid_mr *mr, size_t count, uint64_t *keys)
+{
+	struct fi_mr_alloc_keys alloc = {
+		.count = count,
+		.keys = keys,
+	};
+	return mr->fid.ops->control(&mr->fid, FI_ALLOC_KEYS, &alloc);
+}
+
+static inline int
+fi_mr_assign_key(struct fid_mr *mr, uint64_t offset, size_t len,
+		 uint64_t access, size_t auth_key_size, uint8_t *auth_key,
+		 uint64_t key, uint64_t flags)
+{
+	struct fi_mr_assign_key assign = {
+		.offset = offset,
+		.len = len,
+		.access = access,
+		.auth_key_size = auth_key_size,
+		.auth_key = auth_key,
+		.key = key,
+		.flags = flags,
+	};
+	return mr->fid.ops->control(&mr->fid, FI_ASSIGN_KEY, &assign);
+}
+
+static inline int fi_mr_revoke_key(struct fid_mr *mr, uint64_t key)
+{
+	return mr->fid.ops->control(&mr->fid, FI_REVOKE_KEY, &key);
 }
 
 static inline int

@@ -312,6 +312,10 @@ additional optimizations.
   a shared memory provider, may only be used to communication between
   processes on the same system.
 
+*FI_MR_DYNAMIC_KEY*
+: Requests that the provider support the use of dynamic keys for memory
+  regions.  See [`fi_mr`(3)](fi_mr.3.html) for more details.
+
 *FI_MSG*
 : Specifies that an endpoint should support sending and receiving
   messages or datagrams.  Message capabilities imply support for send
@@ -469,7 +473,8 @@ Primary modifiers: FI_READ, FI_WRITE, FI_RECV, FI_SEND,
 FI_REMOTE_READ, FI_REMOTE_WRITE
 
 Secondary capabilities: FI_MULTI_RECV, FI_SOURCE, FI_RMA_EVENT, FI_SHARED_AV,
-FI_TRIGGER, FI_FENCE, FI_LOCAL_COMM, FI_REMOTE_COMM, FI_SOURCE_ERR, FI_RMA_PMEM.
+FI_TRIGGER, FI_FENCE, FI_LOCAL_COMM, FI_REMOTE_COMM, FI_SOURCE_ERR, FI_RMA_PMEM,
+FI_MR_DYNAMIC_KEY.
 
 # MODE
 

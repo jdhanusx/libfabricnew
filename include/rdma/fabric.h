@@ -158,6 +158,8 @@ typedef struct fid *fid_t;
 #define FI_MATCH_COMPLETE	(1ULL << 31)
 
 #define FI_PEER_TRANSFER	(1ULL << 36)
+#define FI_MR_SINGLE_USE	(1ULL << 38)
+#define FI_MR_DYNAMIC_KEY	(1ULL << 39)
 #define FI_MR_DMABUF		(1ULL << 40)
 #define FI_AV_USER_ID		(1ULL << 41)
 #define FI_PEER			(1ULL << 43)
@@ -688,6 +690,9 @@ enum {
 	FI_GET_VAL,		/* struct fi_fid_var */
 	FI_SET_VAL,		/* struct fi_fid_var */
 	FI_EXPORT_FID,		/* struct fi_fid_export */
+	FI_ALLOC_KEYS,		/* struct fi_mr_alloc_keys */
+	FI_ASSIGN_KEY,		/* struct fi_mr_assign_key */
+	FI_REVOKE_KEY,		/* uint64_t key */
 };
 
 static inline int fi_control(struct fid *fid, int command, void *arg)

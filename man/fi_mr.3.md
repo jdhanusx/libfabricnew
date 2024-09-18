@@ -40,6 +40,18 @@ fi_mr_refresh
 fi_mr_enable
 : Enables a memory region for use.
 
+fi_mr_alloc_keys
+: Allocate a set of keys to be used with a memory region opened with
+  FI_MR_DYNAMIC_KEY flag.
+
+fi_mr_assign_key
+: Assign a key to a memory region (or part of it) opened with FI_MR_DYNAMIC_KEY
+  flag
+
+fi_mr_revoke_key
+: Revoke a key previously assigned to a memory region (or part of it) opened
+  with FI_MR_DYNAMIC_KEY flag.
+
 fi_hmem_ze_device
 : Returns an hmem device identifier for a level zero driver and device.
 
@@ -80,6 +92,14 @@ int fi_mr_refresh(struct fid_mr *mr, const struct iovec *iov,
 
 int fi_mr_enable(struct fid_mr *mr);
 
+int fi_mr_alloc_keys(struct fid_mr *mr, size_t count, uint64_t *keys);
+
+int fi_mr_assign_key(struct fid_mr *mr, uint64_t offset, size_t len,
+    uint64_t access, size_t auth_key_size, uint8_t *auth_key, uint64_t key,
+    uint64_t flags);
+
+int fi_mr_revoke_key(struct fid_mr *mr, uint64_t key);
+
 int fi_hmem_ze_device(int driver_index, int device_index);
 ```
 
@@ -107,14 +127,17 @@ int fi_hmem_ze_device(int driver_index, int device_index);
 : Vectored memory buffer.
 
 *count*
-: Count of vectored buffer entries.
+: Count of vectored buffer entries. For fi_mr_alloc_keys, it is the number
+  of keys to allocate.
 
 *access*
 : Memory access permissions associated with registration
 
 *offset*
 : Optional specified offset for accessing specified registered buffers.
-  This parameter is reserved for future use and must be 0.
+  For fi_mr_assign_key, offset is the offset into the memory region that
+  combined with len defines the sub-region to assign the key to.  For
+  other calls, this parameter is reserved for future use and must be 0.
 
 *requested_key*
 : Requested remote key associated with registered buffers.  Parameter
@@ -125,6 +148,19 @@ int fi_hmem_ze_device(int driver_index, int device_index);
 
 *flags*
 : Additional flags to apply to the operation.
+
+*auth_key_size*
+: The size of authorization_key.
+
+*auth_key*
+: The authorization key to associate with the key to be assigned to the
+  memory region.
+
+*keys*
+: Array of keys to be allocated.
+
+*key*
+: Key to assign to or to remove from the memory region.
 
 # DESCRIPTION
 
@@ -565,6 +601,35 @@ must be explicitly enabled after being fully configured by the
 application.  Any resource bindings to the MR must be done prior
 to enabling the MR.
 
+## fi_mr_alloc_keys
+
+The fi_mr_alloc_keys call is used to allocate a set of keys to be used with
+the memory region.  The memory region must be opened with the FI_MR_DYNAMIC_KEY
+flag.  The number of keys to allocate is specified by the count parameter.
+The allocated keys are stored in the keys array.
+
+## fi_mr_assign_key
+
+The fi_mr_assign_key call is used to assign a key to a memory region (or part
+of it).  The memory region must be opened with the FI_MR_DYNAMIC_KEY flag.
+The key to assign is specified by the key parameter.  The offset and len
+parameters define the sub-region to assign the key to.  The access parameter
+specifies the access permissions associated with the key.  The auth_key_size
+and auth_key parameters are used to specify the authorization key associated
+with the key.
+
+The operation accepts bitwise OR of the following flags.
+
+*FI_MR_SINGLE_USE*
+: The key is valid for a single use.  After the key is used, it is
+  automatically revoked.
+
+## fi_mr_revoke_key
+
+The fi_mr_revoke_key call is used to revoke a key previously assigned to a
+memory region (or part of it).  The memory region must be opened with the
+FI_MR_DYNAMIC_KEY flag.  The key to revoke is specified by the key parameter.
+
 # MEMORY REGION ATTRIBUTES
 
 Memory regions are created using the following attributes.  The struct
@@ -899,6 +964,14 @@ The follow flag may be specified to any memory registration call.
   region.  When set, the region is specified through the dmabuf field of the
   fi_mr_attr structure.  This flag is only usable for domains opened with
   FI_HMEM capability support.
+
+*FI_MR_DYNAMIC_KEY*
+: This flag indicated that the memory region will be associated with dynamic
+  keys.  A key is assigned to the memory region using fi_mr_assign_key and is
+  removed from the memory region fi_mr_revoke__key.  Valid keys are allocated
+  in advance using fi_mr_alloc_keys.  A memory region can have multiple keys
+  assigned to it, each with a different access permission, authorization key
+  and address range.
 
 *FI_AUTH_KEY*
 : Only valid with domains configured with FI_AV_AUTH_KEY. When used with
